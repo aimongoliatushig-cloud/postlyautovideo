@@ -16,6 +16,7 @@ type GenerateResponse = {
 
 const CONTENT_OPTIONS: ContentType[] = ["explainer", "organ_talk", "doctor_lipsync"];
 const NEW_HOSPITAL_VALUE = "__new_hospital__";
+const ULAANBAATAR_OFFSET_MINUTES = 8 * 60;
 
 const JOB_STATUS_LABELS: Record<GenerationJob["status"], string> = {
   queued: "Хүлээгдэж байна",
@@ -71,13 +72,17 @@ export function Dashboard({
     : (selectedHospital?.doctors[0]?.id ?? "");
 
   function formatJobTime(value: string) {
-    return new Date(value).toLocaleString("mn-MN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const timestamp = Date.parse(value);
+    if (Number.isNaN(timestamp)) {
+      return value;
+    }
+
+    const shifted = new Date(timestamp + ULAANBAATAR_OFFSET_MINUTES * 60 * 1000);
+    return [
+      shifted.getUTCFullYear(),
+      padNumber(shifted.getUTCMonth() + 1),
+      padNumber(shifted.getUTCDate()),
+    ].join(".") + ` ${padNumber(shifted.getUTCHours())}:${padNumber(shifted.getUTCMinutes())}`;
   }
 
   useEffect(() => {
@@ -806,4 +811,8 @@ export function Dashboard({
       </div>
     </main>
   );
+}
+
+function padNumber(value: number) {
+  return value.toString().padStart(2, "0");
 }

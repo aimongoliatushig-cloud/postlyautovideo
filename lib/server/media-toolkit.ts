@@ -247,6 +247,7 @@ export async function appendOutro(mainVideo: string, outroVideo: string, outputP
 }
 
 export async function normalizeVerticalVideo(inputPath: string, outputPath: string) {
+  await ensureDir(path.dirname(outputPath));
   await runFfmpeg([
     "-y",
     "-i",
@@ -265,6 +266,7 @@ export async function normalizeVerticalVideo(inputPath: string, outputPath: stri
 }
 
 export async function overlayBrandFrame(inputVideo: string, framePath: string, outputPath: string) {
+  await ensureDir(path.dirname(outputPath));
   if (!(await fileExists(framePath))) {
     await fs.copyFile(inputVideo, outputPath);
     return outputPath;
@@ -294,21 +296,33 @@ export async function overlayBrandFrame(inputVideo: string, framePath: string, o
 }
 
 export async function buildImageSlideshow(imagePaths: string[], durationSeconds: number, outputPath: string) {
+  await ensureDir(path.dirname(outputPath));
   const slideshowDir = path.join(path.dirname(outputPath), "slideshow");
   await ensureDir(slideshowDir);
 
-  const perImageDuration = Math.max(durationSeconds / Math.max(imagePaths.length, 1), 2);
+  if (imagePaths.length === 0) {
+    throw new Error("Дээд талын slideshow үүсгэхэд дор хаяж нэг зураг хэрэгтэй.");
+  }
+
+  const perImageDuration = durationSeconds / imagePaths.length;
   const clipPaths: string[] = [];
+  let consumedDuration = 0;
 
   for (const [index, imagePath] of imagePaths.entries()) {
     const clipPath = path.join(slideshowDir, `slide_${index + 1}.mp4`);
     clipPaths.push(clipPath);
+    const clipDuration =
+      index === imagePaths.length - 1
+        ? Math.max(durationSeconds - consumedDuration, 0.04)
+        : Math.max(perImageDuration, 0.04);
+    consumedDuration += clipDuration;
+
     await runFfmpeg([
       "-y",
       "-loop",
       "1",
       "-t",
-      perImageDuration.toFixed(2),
+      clipDuration.toFixed(3),
       "-i",
       imagePath,
       "-vf",
@@ -323,10 +337,15 @@ export async function buildImageSlideshow(imagePaths: string[], durationSeconds:
   }
 
   await concatVideos(clipPaths, outputPath);
+
+  if (!(await fileExists(outputPath))) {
+    throw new Error(`Дээд талын slideshow видео үүссэнгүй: ${outputPath}`);
+  }
   return outputPath;
 }
 
 export async function buildSplitScreen(topVideo: string, bottomVideo: string, outputPath: string) {
+  await ensureDir(path.dirname(outputPath));
   await runFfmpeg([
     "-y",
     "-i",
@@ -348,6 +367,10 @@ export async function buildSplitScreen(topVideo: string, bottomVideo: string, ou
     "-shortest",
     outputPath,
   ]);
+
+  if (!(await fileExists(outputPath))) {
+    throw new Error(`Split-screen видео үүссэнгүй: ${outputPath}`);
+  }
   return outputPath;
 }
 

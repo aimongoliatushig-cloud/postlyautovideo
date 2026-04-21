@@ -247,6 +247,9 @@ async function generateDoctorLipSyncVideo(input: GenerateInput) {
     const mergedLipSyncPath = path.join(tempDir, "merged-lipsync.mp4");
     await concatVideos(lipSyncSegments, mergedLipSyncPath);
     const lipSyncDuration = await probeDuration(mergedLipSyncPath);
+    if (lipSyncDuration <= 0) {
+      throw new Error("Lip-sync нийлмэл видеоны үргэлжлэх хугацааг тодорхойлж чадсангүй.");
+    }
 
     const visualImages: string[] = [];
     for (const [index, imagePrompt] of plan.imagePrompts.entries()) {
@@ -280,6 +283,15 @@ async function generateDoctorLipSyncVideo(input: GenerateInput) {
     const slideshowPath = path.join(tempDir, "top-visuals.mp4");
     const splitScreenPath = path.join(tempDir, "split-screen.mp4");
     await buildImageSlideshow(visualImages, lipSyncDuration, slideshowPath);
+    const slideshowDuration = await probeDuration(slideshowPath);
+    if (slideshowDuration <= 0) {
+      throw new Error("Дээд талын slideshow видеоны үргэлжлэх хугацааг тодорхойлж чадсангүй.");
+    }
+    if (Math.abs(slideshowDuration - lipSyncDuration) > 0.25) {
+      throw new Error(
+        `Дээд slideshow ба доод lip-sync видеоны хугацаа зөрж байна: ${slideshowDuration.toFixed(2)}s vs ${lipSyncDuration.toFixed(2)}s`,
+      );
+    }
     await buildSplitScreen(slideshowPath, mergedLipSyncPath, splitScreenPath);
 
     return finalizeVideo({
