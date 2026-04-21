@@ -114,24 +114,36 @@ export class KieClient {
     audioPath: string;
     prompt: string;
   }) {
-    const [imageUpload, audioUpload] = await Promise.all([
-      this.uploadFile(input.imagePath, "healthcare/images", this.lipSyncApiKey),
-      this.uploadFile(input.audioPath, "healthcare/audio", this.lipSyncApiKey),
-    ]);
+    let imageUpload: { downloadUrl: string };
+    let audioUpload: { downloadUrl: string };
 
-    const submit = await this.requestJson<MarketResponse>(this.config.infinitalkUrl, {
-      method: "POST",
-      apiKey: this.lipSyncApiKey,
-      payload: {
-        model: this.config.infinitalkModel,
-        input: {
-          image_url: imageUpload.downloadUrl,
-          audio_url: audioUpload.downloadUrl,
-          prompt: input.prompt,
-          resolution: "480p",
+    try {
+      [imageUpload, audioUpload] = await Promise.all([
+        this.uploadFile(input.imagePath, "healthcare/images", this.lipSyncApiKey),
+        this.uploadFile(input.audioPath, "healthcare/audio", this.lipSyncApiKey),
+      ]);
+    } catch (error) {
+      throw new KieApiError(`InfinityTalk file upload алдаа: ${describeFetchError(error)}`);
+    }
+
+    let submit: MarketResponse;
+    try {
+      submit = await this.requestJson<MarketResponse>(this.config.infinitalkUrl, {
+        method: "POST",
+        apiKey: this.lipSyncApiKey,
+        payload: {
+          model: this.config.infinitalkModel,
+          input: {
+            image_url: imageUpload.downloadUrl,
+            audio_url: audioUpload.downloadUrl,
+            prompt: input.prompt,
+            resolution: "480p",
+          },
         },
-      },
-    });
+      });
+    } catch (error) {
+      throw new KieApiError(`InfinityTalk createTask алдаа: ${describeFetchError(error)}`);
+    }
 
     const taskId = submit.data?.taskId;
     if (!taskId) {
@@ -171,32 +183,47 @@ export class KieClient {
     form.set("uploadPath", uploadPath);
     form.set("fileName", path.basename(filePath));
 
-    const response = await fetch(this.config.fileStreamUploadUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: form,
-      signal: AbortSignal.timeout(120_000),
-    });
+    let lastError: Error | null = null;
 
-    const json = (await response.json()) as {
-      success?: boolean;
-      code?: number;
-      msg?: string;
-      data?: { downloadUrl?: string };
-    };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch(this.config.fileStreamUploadUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: form,
+          signal: AbortSignal.timeout(120_000),
+        });
 
-    if (!response.ok || json.success === false || json.code !== 200) {
-      throw new KieApiError(json.msg ?? "Failed to upload file to KIE.");
+        const json = (await response.json()) as {
+          success?: boolean;
+          code?: number;
+          msg?: string;
+          data?: { downloadUrl?: string };
+        };
+
+        if (!response.ok || json.success === false || json.code !== 200) {
+          throw new KieApiError(json.msg ?? "Failed to upload file to KIE.");
+        }
+
+        const downloadUrl = json.data?.downloadUrl;
+        if (!downloadUrl) {
+          throw new KieApiError("KIE upload did not return a downloadUrl.");
+        }
+
+        return { downloadUrl };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error("Unknown KIE upload failure");
+        if (attempt < 2) {
+          await sleep(2_500 * (attempt + 1));
+        }
+      }
     }
 
-    const downloadUrl = json.data?.downloadUrl;
-    if (!downloadUrl) {
-      throw new KieApiError("KIE upload did not return a downloadUrl.");
-    }
-
-    return { downloadUrl };
+    throw new KieApiError(
+      `KIE file upload алдаа (${uploadPath} -> ${this.config.fileStreamUploadUrl}): ${describeFetchError(lastError)}`,
+    );
   }
 
   private async resolveDownloadUrl(url: string) {
@@ -326,7 +353,9 @@ export class KieClient {
       }
     }
 
-    throw lastError ?? new KieApiError("KIE request failed.");
+    throw new KieApiError(
+      `KIE хүсэлт амжилтгүй (${init.method} ${url}): ${describeFetchError(lastError)}`,
+    );
   }
 }
 
@@ -340,4 +369,30 @@ function safeParseResultUrls(raw: string) {
   } catch {
     return {};
   }
+}
+
+function describeFetchError(error: unknown) {
+  if (!error) {
+    return "тодорхойгүй алдаа";
+  }
+
+  if (error instanceof KieApiError) {
+    return error.message;
+  }
+
+  if (error instanceof Error) {
+    if (error.name === "TimeoutError" || error.name === "AbortError") {
+      return "хүсэлтийн хугацаа хэтэрсэн";
+    }
+
+    const causeMessage =
+      typeof (error as Error & { cause?: unknown }).cause === "object" &&
+      (error as Error & { cause?: { message?: string } }).cause?.message
+        ? ` | ${(error as Error & { cause?: { message?: string } }).cause?.message}`
+        : "";
+
+    return `${error.message}${causeMessage}`;
+  }
+
+  return String(error);
 }
