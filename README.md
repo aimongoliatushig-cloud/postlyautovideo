@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Postly Engine v1
 
-## Getting Started
+AI-powered healthcare reel generator for Mongolian hospital social media content.
 
-First, run the development server:
+## What It Does
+
+- Generates `explainer`, `organ talk`, and `doctor lip-sync` reels
+- Stores every hospital under `projects/{hospital}/...`
+- Uses KIE.ai for NanoBanana 2, Veo 3.1, and InfinityTalk
+- Adds low-volume background music
+- Always appends a hospital outro
+- Mirrors metadata to Supabase when env vars are configured
+
+## Required Environment
+
+Copy `.env.example` to `.env.local` if you want env-based fallback values:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+KIE_API_KEY=
+LIPSYNC_API_KEY=
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_STORAGE_BUCKET=
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Recommended flow: save the keys from the UI in `projects/_system/settings.json`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`LIPSYNC_API_KEY` falls back to `KIE_API_KEY` if omitted.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Run
 
-## Learn More
+```bash
+npm install
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+Open [http://localhost:3000](http://localhost:3000).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Settings And Jobs
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- API keys can be managed from the dashboard and are stored in `projects/_system/settings.json`
+- Generation now starts an async local job and the UI polls `/api/jobs/:id`
+- This avoids a single long request hanging on "working" while KIE jobs are still running
 
-## Deploy on Vercel
+## Hospital Storage Layout
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```text
+/projects/
+  /{hospital_name}/
+    /doctors/
+      /{doctor_name}/
+        photo.png
+        meta.json
+    /videos/
+      /explainer/
+      /organ_talk/
+      /doctor_lipsync/
+    /assets/
+      outro.mp4
+      brand_frame.png
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The app creates missing folders automatically. If a hospital has no `outro.mp4`, it generates a branded default outro and saves it under `assets/outro.mp4`.
+
+## Notes
+
+- Veo and NanoBanana prompts are sent in English for reliability.
+- Doctor lip-sync uploads doctor image and audio chunks to KIE temporary storage before calling InfinityTalk.
+- Media composition uses bundled `ffmpeg-static` and `ffprobe-static`, so no system ffmpeg install is required.
+- The current background-job runner is suitable for a local/dev Node process. For production, move it to a real worker or callback-driven queue.
